@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grpcurl
+  namespace: calico-system
+  labels:
+    app: grpcurl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grpcurl
+  template:
+    metadata:
+      labels:
+        app: grpcurl
+    spec:
+      securityContext:
+        runAsUser: 0
+      containers:
+      - name: grpcurl-container
+        image: us-west1-docker.pkg.dev/tigera-marketing/tigera-instruqt/grpcurl:v1.9.3-alpine
+        command: ["/bin/sh"]
+        workingDir: /home
+        tty: true
+        stdin: true
+        volumeMounts:
+        - name: goldmane-key-pair-volume
+          mountPath: /etc/goldmane/certs
+          readOnly: true
+      volumes:
+      - name: goldmane-key-pair-volume
+        secret:
+          secretName: goldmane-key-pair
