@@ -1,16 +1,64 @@
-import grpc
-import api_pb2
-import api_pb2_grpc
 import time
+import os
+import sys
+import json
+from google.protobuf.json_format import MessageToJson
 
-ca = open("certs/operator.crt","rb").read()
-cert = open("certs/goldmane.crt","rb").read()
-key = open("certs/goldmane.key","rb").read()
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), 'grpc_libs')))
 
-creds = grpc.ssl_channel_credentials(cert,key,cert)
-# channel = grpc.secure_channel("goldmane.calico-system.svc:7443", creds)
-channel = grpc.secure_channel("goldmane:7443", creds)
+import grpc
+import grpc_libs.api_pb2 as api_pb2
+import grpc_libs.api_pb2_grpc as api_pb2_grpc
 
+def get_connection_details():
+    """Retrieves connection info from args or defaults."""
+    if len(sys.argv) >= 3:
+        return sys.argv[1], sys.argv[2]
+    return "172.18.0.5", "7443"
+
+# --- Configuration ---
+target_ip, target_port = get_connection_details()
+JSON_FILE = "goldmane_flows.json"
+DUMP_INTERVAL_SEC = 1 * 60  # 1 minute
+
+def save_to_json(data_buffer):
+    if not data_buffer:
+        return
+    
+    try:
+        with open(JSON_FILE, "a") as f:
+            # for entry in data_buffer:
+                # 1. Convert Protobuf to a Python Dictionary
+                # 2. Use json.dumps to ensure strict formatting
+                data = json.loads(MessageToJson(data_buffer, preserving_proto_field_name=True))
+                if 'flow' in data:
+                    json_dict = data['flow']['Key']
+                else:
+                    json_dict = data
+                f.write(json.dumps(json_dict) + "\n")
+                
+        # print(f"[{time.strftime('%H:%M:%S')}] Saved {len(data_buffer)} valid JSON objects.")
+    except Exception as e:
+        print(f"File Write Error: {e}")
+
+# Load Certificates
+try:
+    ca = open("certs/goldmane-ca.crt", "rb").read()
+    cert = open("certs/goldmane.crt", "rb").read()
+    key = open("certs/goldmane.key", "rb").read()
+except FileNotFoundError as e:
+    print(f"Error: Certificate file not found: {e}")
+    sys.exit(1)
+
+# Establish Secure Channel
+# Note: Use 'ca' as the root of trust
+creds = grpc.ssl_channel_credentials(ca, key, cert)
+
+# Note: These two lines are a workaround because Goldmane CN excludes the 
+# external Service LoadBalancer IP.
+target_address = f"ipv4:{target_ip}:{target_port}"
+options = (('grpc.ssl_target_name_override', 'goldmane.calico-system.svc'),)
+channel = grpc.secure_channel(target_address, creds, options=options)
 
 # Time range: last 15 minutes in nanoseconds
 now_ns = int(time.time() * 1e9)
@@ -37,7 +85,7 @@ request = api_pb2.FlowListRequest(
     filter=flow_filter,
     sort_by=[sort_option],
     page_size=50,
-    page_number=5
+    # page_number=5
 )
 
 try:
@@ -51,15 +99,15 @@ try:
         print(result)
 
 except Exception as e:
-    print(f"gRPC failed with code: {e.code()}, message: {e.details()}")
+    print(f"gRPC failed with: {e}")
 
 
 # Optional: you can also build filters just like with List()
 # e.g., only flows from `kube-system`
 filter_req = api_pb2.Filter(
-    source_namespaces=[
-        api_pb2.StringMatch(value="kube-system", type=api_pb2.MatchType.Exact)
-    ]
+    # source_namespaces=[
+    #     api_pb2.StringMatch(value="kube-system", type=api_pb2.MatchType.Exact)
+    # ]
 )
 
 # Build Stream request
@@ -77,10 +125,13 @@ request = api_pb2.FlowStreamRequest(
 
 
 try:
-    print("Streaming new flows (Ctrl+C to stop):\n")
+    print("Streaming new flows (Ctrl+C to stop)")
+    print("Flows are being recorded in %s:"%JSON_FILE)
     for result in stub.Stream(request):
-        print(result)
+        save_to_json(result)
+        # print(result)
 except grpc.RpcError as e:
-    print(f"gRPC error: {e.code()} - {e.details()}")
+    print(f"gRPC: {e}")
 except KeyboardInterrupt:
+    save_to_json(result)
     print("\nStream stopped by user.")

@@ -4,7 +4,7 @@ This repository provides examples and tools for interacting with **Calico Goldma
 
 ## Project Structure
 
-- **/grpcurl**: Contains manifests to deploy a `grpcurl` pod pre-configured with the necessary volume mounts to access Goldmane's mTLS certificates.
+- **/grpcurl**: Contains manifests to deploy a `grpcurl` pod pre-configured with the necessary volume mounts to access Goldmane's mTLS certificates. "Requires no programming"
 - **/python**: A Python-based gRPC client example showing how to programmatically connect to Goldmane, list flows, and listen to the flow stream.
 
 ## Features
